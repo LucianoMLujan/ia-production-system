@@ -1,0 +1,8 @@
+langchain==0.1.16
+langchain-community==0.0.34
+langgraph==0.0.39
+chromadb==0.4.24
+sentence-transformers==2.7.0
+mcp==0.9.1
+langsmith==0.1.49
+pydantic==2.7.1

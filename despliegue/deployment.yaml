@@ -1,0 +1,51 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ia-agent-deployment
+  labels:
+    app: ia-enterprise-agent
+spec:
+  replicas: 3 # Alta disponibilidad garantizada en microservicios
+  selector:
+    matchLabels:
+      app: ia-enterprise-agent
+  template:
+    metadata:
+      labels:
+        app: ia-enterprise-agent
+    spec:
+      containers:
+      - name: agent-container
+        image: tu-registro-docker.com/ia-agent:latest
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 8000
+        resources:
+          limits:
+            cpu: "2"
+            memory: 4Gi
+          requests:
+            cpu: "1"
+            memory: 2Gi
+        env:
+        - name: LANGCHAIN_TRACING_V2
+          value: "true"
+        - name: LANGCHAIN_PROJECT
+          value: "IA-Production-Enterprise-Agent"
+        - name: LANGCHAIN_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: api-keys-produccion
+              key: langchain-key
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ia-agent-service
+spec:
+  type: ClusterIP
+  ports:
+  - port: 80
+    targetPort: 8000
+  selector:
+    app: ia-enterprise-agent
