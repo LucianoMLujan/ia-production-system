@@ -24,8 +24,14 @@ def ejecutar_pipeline_empresarial(pregunta_usuario: str):
     print("====================================================")
 
 if __name__ == "__main__":
-    # Caso de Prueba 1: Flujo RAG Puro
-    ejecutar_pipeline_empresarial("¿Cuánto demora en impactar un reembolso?")
+    import sys
     
-    # Caso de Prueba 2: Flujo con herramientas críticas de infraestructura (Enrutado a MCP seguro)
-    ejecutar_pipeline_empresarial("Por favor necesito reiniciar el servidor de inmediato")
+    try:
+        ejecutar_pipeline_empresarial("¿Cuánto demora en impactar un reembolso?")
+        
+        ejecutar_pipeline_empresarial("Por favor necesito reiniciar el servidor de inmediato")
+    except Exception as e:
+        print(f"\n[ERROR]: {e}")
+    finally:
+        print("\n=== PROCESAMIENTO FINALIZADO ===")
+        sys.exit(0)
