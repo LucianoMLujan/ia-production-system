@@ -22,16 +22,11 @@ def ejecutar_pipeline_empresarial(pregunta_usuario: str):
     print("\n================== RESPUESTA FINAL =================")
     print(resultado["respuesta_final"])
     print("====================================================")
+    return resultado["respuesta_final"]
 
 if __name__ == "__main__":
-    import sys
+    # Caso de Prueba 1: Flujo RAG Puro
+    ejecutar_pipeline_empresarial("¿Cuánto demora en impactar un reembolso?")
     
-    try:
-        ejecutar_pipeline_empresarial("¿Cuánto demora en impactar un reembolso?")
-        
-        ejecutar_pipeline_empresarial("Por favor necesito reiniciar el servidor de inmediato")
-    except Exception as e:
-        print(f"\n[ERROR]: {e}")
-    finally:
-        print("\n=== PROCESAMIENTO FINALIZADO ===")
-        sys.exit(0)
+    # Caso de Prueba 2: Flujo con herramientas críticas de infraestructura (Enrutado a MCP seguro)
+    ejecutar_pipeline_empresarial("Por favor necesito reiniciar el servidor de inmediato")

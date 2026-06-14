@@ -1,92 +1,174 @@
-# IA Production System
+# IA Production Enterprise Agent
 
-Este proyecto es un sistema de producción basado en Inteligencia Artificial que implementa flujos de Recuperación Generativa Aumentada (RAG) y Agentes inteligentes utilizando arquitecturas modernas y escalables.
+Sistema de agente empresarial de grado de producción que integra RAG bifásico,
+orquestación cíclica con LangGraph, un LLM real (GPT-4o-mini), seguridad MCP
+y observabilidad completa via LangSmith.
 
-## Estructura del Proyecto
+---
 
-A continuación se detalla la estructura de directorios y componentes principales del sistema:
+## 🏗️ Estructura del Proyecto
 
 ```text
 ia-production-system/
 │
-├── retrieval/                # Componente de recuperación de información
-│   ├── __init__.py
-│   └── vector_store.py       # Gestión del almacén de vectores (Vector Store)
+├── api/                      # API REST (FastAPI) + healthchecks
+│   └── main.py               # Endpoints /query, /health, /ready
 │
-├── ranking/                  # Reordenamiento de documentos (Reranking)
-│   ├── __init__.py
-│   └── reranker.py           # Algoritmos de reranking para mejorar la relevancia
+├── agente/                   # Grafo de agente (LangGraph)
+│   └── graph.py              # Nodos RAG, MCP y generación LLM real
 │
-├── orquestacion/             # Control y flujo de trabajo principal
-│   ├── __init__.py
-│   └── pipeline.py           # Tubería de orquestación de datos y peticiones
+├── retrieval/                # Base de datos vectorial (ChromaDB)
+│   └── vector_store.py
 │
-├── agente/                   # Definición de agentes y lógica de decisión
-│   ├── __init__.py
-│   └── graph.py              # Implementación del grafo de agente (e.g., LangGraph)
+├── ranking/                  # Re-ranking bifásico (CrossEncoder)
+│   └── reranker.py
 │
-├── adaptadores_mcp/          # Protocolo de Contexto de Modelo (MCP)
-│   ├── __init__.py
-│   └── mcp_server.py         # Servidor MCP para exposición de herramientas/recursos
+├── orquestacion/             # Pipeline principal
+│   └── pipeline.py
 │
-├── observabilidad/           # Monitoreo, trazabilidad y telemetría
-│   ├── __init__.py
-│   └── monitor.py            # Registro de latencias, logs y telemetría general
+├── adaptadores_mcp/          # Servidor MCP (seguridad de herramientas)
+│   └── mcp_server.py
 │
-├── despliegue/               # Archivos de configuración para infraestructura
-│   ├── deployment.yaml       # Configuración del Deployment de Kubernetes
-│   └── service.yaml          # Configuración del Servicio de Kubernetes
+├── observabilidad/           # Telemetría y exportación a LangSmith
+│   └── monitor.py
 │
-├── requirements.txt          # Dependencias y requerimientos del proyecto
-└── README.md                 # Documentación del sistema (este archivo)
+├── despliegue/               # Manifiestos Kubernetes
+│   ├── deployment.yaml       # Deployment con liveness/readiness/startup probes
+│   └── service.yaml          # Service ClusterIP (consistente con el Deployment)
+│
+├── tests/                    # Suite de pruebas automáticas
+│   └── test_sistema.py       # Unit + integración (>70% cobertura)
+│
+├── docs/
+│   └── SLOs_y_Runbook.md    # SLOs definidos y runbooks de incidentes
+│
+├── .github/
+│   └── workflows/
+│       └── ci-cd.yml         # Pipeline CI/CD (GitHub Actions)
+│
+├── Dockerfile                # Imagen multi-stage de producción
+└── requirements.txt          # Dependencias actualizadas y versionadas
 ```
 
-## Componentes Clave
+---
 
-*   **`retrieval`**: Permite interactuar con bases de datos vectoriales para almacenar y recuperar fragmentos de documentos relevantes de forma semántica.
-*   **`ranking`**: Optimiza los resultados de búsqueda de vectores utilizando modelos de reranking (como Cohere u otros), reduciendo el ruido en el contexto entregado al modelo de lenguaje.
-*   **`orquestacion`**: Define el flujo principal en el que las peticiones se procesan secuencialmente.
-*   **`agente`**: Implementa la lógica basada en grafos para agentes conversacionales autónomos que pueden razonar y tomar decisiones.
-*   **`adaptadores_mcp`**: Implementación de servidores basados en **Model Context Protocol (MCP)** para habilitar la integración del sistema con clientes MCP y orquestadores externos.
-*   **`observabilidad`**: Seguimiento e instrumentación detallada de las latencias de procesamiento de cada componente para el diagnóstico y optimización en producción.
-*   **`despliegue`**: Manifiestos de Kubernetes listos para empaquetar la aplicación en un contenedor de Docker e implementarla en un clúster productivo.
+## ✅ Decisiones Arquitectónicas
 
-# Sistema de Agente de IA para Entornos Empresariales Robustos
+### 1. RAG con Re-ranking Bifásico
+ChromaDB (embeddings `all-MiniLM-L6-v2`) recupera candidatos; el CrossEncoder
+(`ms-marco-MiniLM-L-6-v2`) los reordena por relevancia semántica real. Esto
+mitiga el problema de fragmentos irrelevantes al top-k y reduce costos de
+inferencia al LLM.
 
-Este repositorio contiene la arquitectura de producción de un sistema de IA de grado empresarial que integra patrones avanzados de recuperación, orquestación cíclica y seguridad de ejecución.
+### 2. Orquestación con LangGraph
+El sistema se modela como un Grafo de Estados Dirigido (DAG), habilitando
+razonamientos cíclicos y enrutamiento condicional (Self-RAG). El estado tipado
+(`AgenteState`) garantiza consistencia entre nodos.
 
-## 🏗️ Decisiones Arquitectónicas Justificadas
+### 3. LLM Real — GPT-4o-mini
+`nodo_generar_respuesta` llama a la API de OpenAI con `ChatOpenAI`. El contexto
+recuperado se inyecta como `SystemMessage`, siguiendo la técnica de
+*context-grounded generation* para minimizar alucinaciones.
 
-1. **RAG con Re-ranking Bifásico**: Se implementó una base de datos vectorial local (ChromaDB) acoplada a un modelo Cross-Encoder (`ms-marco-MiniLM`). Esto mitiga el problema de la pérdida de contexto en ventanas grandes y optimiza los costos de inferencia al procesar solo fragmentos con alto grado de relevancia semántica real.
-2. **Orquestación de Estado con LangGraph**: A diferencia de las cadenas lineales tradicionales de LangChain, LangGraph permite modelar el sistema como un Grafo de Estados Dirigido (DAG). Esto habilita razonamientos cíclicos y comportamientos reactivos iterativos, fundamentales para sistemas de autoevaluación (Self-RAG).
-3. **Model Context Protocol (MCP)**: Las interacciones del agente con herramientas críticas del sistema operativo se delegaron de forma estricta bajo la especificación MCP de Anthropic, aislando los efectos secundarios del LLM mediante comunicación estándar por pipes (stdin/stdout), impidiendo ataques de inyección de prompts que comprometan la infraestructura.
+### 4. Model Context Protocol (MCP)
+Las interacciones con el sistema operativo se delegan estrictamente al servidor
+MCP, aislando los efectos secundarios del LLM con una lista blanca explícita de
+comandos. Previene ataques de inyección de prompts.
 
-## 📊 Matriz de Métricas de Observabilidad Instrumentadas
+### 5. Observabilidad con LangSmith
+Las credenciales se leen del entorno (nunca hardcodeadas). Si `LANGCHAIN_API_KEY`
+está presente, cada nodo del grafo publica su latencia y estado a LangSmith vía
+`client.create_run()`. El decorador `@medir_metricas_criticas` garantiza que
+ningún fallo de telemetría interrumpa el sistema principal.
 
-* **Latencia Operativa de Nodos**: Medida mediante decoradores de tiempo en cada subproceso crítico del grafo para detectar cuellos de botella en la fase de embedding frente a la inferencia.
-* **Tasa de Ejecución Segura (MCP Compliance)**: Monitoreo estricto sobre comandos interceptados vs. comandos permitidos para auditorías de seguridad perimetral.
-* **Trazabilidad Completa (LangSmith)**: Instrumentación transparente mediante variables nativas del SDK para inspeccionar el árbol de llamadas e insumos intermedios de los prompts.
+---
 
-## 🚀 Guía de Despliegue en Producción
+## 📊 SLOs Definidos
 
-Para desplegar los microservicios de manera resiliente dentro del clúster de Kubernetes corporativo, ejecute:
+| SLO | Métrica | Objetivo |
+|-----|---------|----------|
+| SLO-01 | Disponibilidad HTTP 2xx | ≥ 99.5% |
+| SLO-02 | Latencia p95 en `/query` | ≤ 5 s |
+| SLO-03 | Latencia p99 en `/query` | ≤ 15 s |
+| SLO-04 | Tasa de éxito MCP | ≥ 99.9% |
+| SLO-05 | Tasa de error LLM | ≤ 1% |
+
+Ver runbooks completos en [`docs/SLOs_y_Runbook.md`](docs/SLOs_y_Runbook.md).
+
+---
+
+## 🚀 Puesta en Marcha Local
+
+### 1. Variables de entorno requeridas
 
 ```bash
-kubectl apply -f despliegue/deployment.yaml
+cp .env.example .env
+# Editar .env con tus claves:
+# OPENAI_API_KEY=sk-...
+# LANGCHAIN_API_KEY=ls__...
+```
 
-## Requisitos de Instalación
-
-Las dependencias principales comentadas en el proyecto incluyen:
-*   `langchain`
-*   `langgraph`
-*   `fastapi`
-*   `uvicorn`
-*   `pydantic`
-*   `numpy`
-*   `openai`
-
-Para instalar y comenzar a desarrollar localmente, puedes descomentar los paquetes requeridos en `requirements.txt` y ejecutar:
+### 2. Instalar dependencias
 
 ```bash
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
+
+### 3. Ejecutar la API
+
+```bash
+uvicorn api.main:app --reload --port 8000
+# La API estará disponible en http://localhost:8000
+# Documentación interactiva: http://localhost:8000/docs
+```
+
+### 4. Ejecutar las pruebas
+
+```bash
+pytest tests/ -v --cov=. --cov-report=term-missing
+```
+
+---
+
+## 🐳 Docker
+
+```bash
+# Build
+docker build -t ia-agent:local .
+
+# Run (con variables de entorno)
+docker run -p 8000:8000 \
+  -e OPENAI_API_KEY=sk-... \
+  -e LANGCHAIN_API_KEY=ls__... \
+  ia-agent:local
+```
+
+---
+
+## ☸️ Kubernetes
+
+```bash
+# Crear Secret con las API Keys
+kubectl create secret generic api-keys-produccion \
+  --from-literal=openai-key=$OPENAI_API_KEY \
+  --from-literal=langchain-key=$LANGCHAIN_API_KEY
+
+# Aplicar manifiestos
+kubectl apply -f despliegue/
+
+# Verificar estado
+kubectl get pods -l app=ia-enterprise-agent
+kubectl rollout status deployment/ia-agent-deployment
+```
+
+---
+
+## 🔄 CI/CD
+
+El pipeline `.github/workflows/ci-cd.yml` ejecuta tres jobs en secuencia:
+
+1. **🧪 Tests** — `pytest` con cobertura mínima del 70%
+2. **🐳 Docker** — Build multi-stage y push a GHCR (solo en `main`)
+3. **🚀 Deploy** — `kubectl set image` + rollout verification (requiere aprobación manual)

@@ -1,12 +1,15 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: ia-production-system-service
+  name: ia-agent-service
+  labels:
+    app: ia-enterprise-agent
 spec:
+  type: ClusterIP
   selector:
-    app: ia-production-system
+    app: ia-enterprise-agent          # Debe coincidir con el label del Deployment
   ports:
-    - protocol: TCP
+    - name: http
+      protocol: TCP
       port: 80
       targetPort: 8000
-  type: ClusterIP

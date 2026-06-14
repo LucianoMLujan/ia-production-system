@@ -5,47 +5,80 @@ metadata:
   labels:
     app: ia-enterprise-agent
 spec:
-  replicas: 3 # Alta disponibilidad garantizada en microservicios
+  replicas: 3  # Alta disponibilidad: 3 réplicas para tolerar fallo de pods
   selector:
     matchLabels:
       app: ia-enterprise-agent
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0          # Zero-downtime deployment
   template:
     metadata:
       labels:
         app: ia-enterprise-agent
     spec:
       containers:
-      - name: agent-container
-        image: tu-registro-docker.com/ia-agent:latest
-        imagePullPolicy: Always
-        ports:
-        - containerPort: 8000
-        resources:
-          limits:
-            cpu: "2"
-            memory: 4Gi
-          requests:
-            cpu: "1"
-            memory: 2Gi
-        env:
-        - name: LANGCHAIN_TRACING_V2
-          value: "true"
-        - name: LANGCHAIN_PROJECT
-          value: "IA-Production-Enterprise-Agent"
-        - name: LANGCHAIN_API_KEY
-          valueFrom:
-            secretKeyRef:
-              name: api-keys-produccion
-              key: langchain-key
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: ia-agent-service
-spec:
-  type: ClusterIP
-  ports:
-  - port: 80
-    targetPort: 8000
-  selector:
-    app: ia-enterprise-agent
+        - name: agent-container
+          image: ghcr.io/tu-org/ia-production-system/ia-agent:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 8000
+
+          # ─── Recursos ──────────────────────────────────────────────
+          resources:
+            limits:
+              cpu: "2"
+              memory: 4Gi
+            requests:
+              cpu: "1"
+              memory: 2Gi
+
+          # ─── Variables de entorno ──────────────────────────────────
+          env:
+            - name: LANGCHAIN_TRACING_V2
+              value: "true"
+            - name: LANGCHAIN_PROJECT
+              value: "IA-Production-Enterprise-Agent"
+            - name: LANGCHAIN_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: api-keys-produccion
+                  key: langchain-key
+            - name: OPENAI_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: api-keys-produccion
+                  key: openai-key
+
+          # ─── Liveness Probe ────────────────────────────────────────
+          # K8s reinicia el pod si /health no responde 3 veces seguidas.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            initialDelaySeconds: 60   # Tiempo de arranque de modelos ML
+            periodSeconds: 30
+            timeoutSeconds: 10
+            failureThreshold: 3
+
+          # ─── Readiness Probe ───────────────────────────────────────
+          # K8s deja de enviar tráfico al pod si /ready falla.
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8000
+            initialDelaySeconds: 70
+            periodSeconds: 15
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # ─── Startup Probe ─────────────────────────────────────────
+          # Evita que liveness mate el pod durante la carga inicial.
+          startupProbe:
+            httpGet:
+              path: /health
+              port: 8000
+            failureThreshold: 30      # 30 × 10s = 5 minutos máx de arranque
+            periodSeconds: 10

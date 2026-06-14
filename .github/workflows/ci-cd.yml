@@ -1,0 +1,146 @@
+name: CI/CD — IA Production Enterprise Agent
+
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+    branches: [main]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}/ia-agent
+
+# ─────────────────────────────────────────────────────────────────────────────
+# JOB 1 — Pruebas automáticas (unit + integración)
+# ─────────────────────────────────────────────────────────────────────────────
+jobs:
+  tests:
+    name: 🧪 Suite de Pruebas
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt pytest pytest-cov httpx
+
+      - name: Ejecutar pruebas con cobertura
+        env:
+          # La API key de OpenAI se mantiene en secretos del repositorio.
+          # Durante los tests el LLM está mockeado, por lo que la key no
+          # se utiliza realmente — se define sólo para que el env no esté vacío.
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          LANGCHAIN_API_KEY: ${{ secrets.LANGCHAIN_API_KEY }}
+          LANGCHAIN_TRACING_V2: "false"
+        run: |
+          pytest tests/ \
+            --tb=short \
+            -v \
+            --cov=. \
+            --cov-report=xml \
+            --cov-report=term-missing \
+            --cov-fail-under=70
+
+      - name: Subir reporte de cobertura
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # JOB 2 — Build y publicación de la imagen Docker
+  # ─────────────────────────────────────────────────────────────────────────────
+  build-and-push:
+    name: 🐳 Build y Push Docker
+    runs-on: ubuntu-latest
+    needs: tests                          # Solo se ejecuta si los tests pasan
+    if: github.ref == 'refs/heads/main'   # Solo en la rama principal
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login en GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extraer metadatos de la imagen
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha,prefix=sha-
+            type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
+            type=semver,pattern={{version}}
+
+      - name: Build y Push de imagen multi-stage
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ─────────────────────────────────────────────────────────────────────────────
+  # JOB 3 — Despliegue en Kubernetes (solo en main)
+  # ─────────────────────────────────────────────────────────────────────────────
+  deploy:
+    name: 🚀 Despliegue en Kubernetes
+    runs-on: ubuntu-latest
+    needs: build-and-push
+    if: github.ref == 'refs/heads/main'
+    environment: production              # Requiere aprobación manual en GitHub
+
+    steps:
+      - name: Checkout del repositorio
+        uses: actions/checkout@v4
+
+      - name: Configurar kubectl
+        uses: azure/setup-kubectl@v3
+        with:
+          version: "v1.29.0"
+
+      - name: Autenticar en el cluster
+        run: echo "${{ secrets.KUBECONFIG }}" | base64 -d > /tmp/kubeconfig
+
+      - name: Actualizar imagen en el Deployment
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+          IMAGE_TAG: sha-${{ github.sha }}
+        run: |
+          kubectl set image deployment/ia-agent-deployment \
+            agent-container=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:$IMAGE_TAG \
+            --kubeconfig=/tmp/kubeconfig
+
+      - name: Aplicar manifiestos de infraestructura
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: kubectl apply -f despliegue/ --kubeconfig=/tmp/kubeconfig
+
+      - name: Verificar rollout exitoso
+        env:
+          KUBECONFIG: /tmp/kubeconfig
+        run: |
+          kubectl rollout status deployment/ia-agent-deployment \
+            --timeout=120s \
+            --kubeconfig=/tmp/kubeconfig

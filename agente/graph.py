@@ -1,9 +1,19 @@
+import os
 from typing import TypedDict, List, Dict, Any
 from langgraph.graph import StateGraph, END
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import SystemMessage, HumanMessage
 from retrieval.vector_store import KnowledgeBase
 from ranking.reranker import DocumentReranker
 from adaptadores_mcp.mcp_server import ejecutar_comando_seguro
 from observabilidad.monitor import medir_metricas_criticas
+
+# Cliente LLM real — modelo rentable y potente de OpenAI
+_llm = ChatOpenAI(
+    model="gpt-4o-mini",
+    temperature=0.2,
+    api_key=os.environ.get("OPENAI_API_KEY"),
+)
 
 # 1. Definimos el Estado del Agente
 class AgenteState(TypedDict):
@@ -45,10 +55,20 @@ def nodo_ejecutar_mcp(state: AgenteState) -> Dict[str, Any]:
 
 @medir_metricas_criticas
 def nodo_generar_respuesta(state: AgenteState) -> Dict[str, Any]:
-    print("-> Nodo: Sintetizando respuesta al usuario")
-    contexto = " ".join(state["contexto_recuperado"])
-    respuesta = f"Basado en el contexto interno corporativo: {contexto}"
-    return {"respuesta_final": respuesta}
+    print("-> Nodo: Sintetizando respuesta al usuario mediante LLM real (GPT-4o-mini)")
+    contexto = "\n".join(state["contexto_recuperado"])
+    mensajes = [
+        SystemMessage(
+            content=(
+                "Eres un asistente corporativo especializado. "
+                "Responde ÚNICAMENTE basándote en el siguiente contexto interno de la empresa.\n\n"
+                f"CONTEXTO:\n{contexto}"
+            )
+        ),
+        HumanMessage(content=state["query"]),
+    ]
+    respuesta_llm = _llm.invoke(mensajes)
+    return {"respuesta_final": respuesta_llm.content}
 
 # 3. Construcción del Flujo Líclico (Grafo)
 workflow = StateGraph(AgenteState)
